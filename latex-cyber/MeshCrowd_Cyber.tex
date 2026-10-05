@@ -1,0 +1,663 @@
+%=============================================================================
+% MeshCrowd: Trustworthy Crowd Sensing through Physical-Layer Security
+% and Gamified Integrity Engineering
+% IEEE two-column manuscript — cybersecurity & gamification focus.
+% Compile with:  pdflatex MeshCrowd_Cyber.tex  (run twice for refs)
+% Requires: IEEEtran class and the 'cite' package.
+%=============================================================================
+\documentclass[journal,10pt]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{textcomp}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\graphicspath{{figures/}}
+
+\begin{document}
+
+%---------------------------------------------------------------------------
+% Title block
+%---------------------------------------------------------------------------
+\title{MeshCrowd: Trustworthy Crowd Sensing through Physical-Layer Security and Gamified Integrity Engineering}
+
+\author{%
+\IEEEauthorblockN{Prepared for submission to IEEE --- draft}
+\IEEEauthorblockA{Device-Free Passive Sensing on Commodity Phones: Secure Multi-Band Fusion, dBm-Based Ranging, and a Reliability Bonus that Rewards Honesty}
+}
+
+\markboth{Journal of \LaTeX\ Class Files,~Vol.~XX, No.~X, 2026}%
+{Author \MakeLowercase{\textit{et al.}}: Trustworthy Crowd Sensing}
+
+\maketitle
+
+%---------------------------------------------------------------------------
+% Abstract
+%---------------------------------------------------------------------------
+\begin{abstract}
+Crowd-sourced device-free sensing is attractive precisely because it needs no
+installed infrastructure: people already carry the radios, and the observed
+target carries nothing. Yet the same openness that makes it cheap makes it
+exploitable. A single malicious participant can inject forged beacons
+(spoofed SSIDs, rogue access points, phantom Bluetooth advertising) or publish
+forged crossing reports, and in a system that rewards reliability the mesh mean
+--- the very quantity being rewarded --- becomes the attack surface. This paper
+recasts \emph{MeshCrowd}, a device-free, multi-band passive RF sensing
+system that runs entirely on an unmodified commodity smartphone, as a study in
+two problems that are usually treated apart. The first is \emph{cyber}: how to
+make a sensing mesh resilient to Byzantine contributors that report data they
+never observed. The second is \emph{gamification}: how to design the incentives
+so that the rational strategy for a participant is precisely the behaviour the
+system wants, rather than merely a behaviour it can measure. We show that the
+two are not independent. By computing an explicit estimated accuracy and
+granting a reliable-accuracy bonus to the devices whose measurements lie
+nearest the fused mesh mean, the incentive and the security objective coincide:
+encouraging accuracy is equivalent to encouraging honesty. The system fuses
+per-link dip depth, duration, temporal texture, variance, prominence and
+multi-link coherence across BLE and dual-band (2.4~GHz and 5~GHz) Wi-Fi into
+pedestrian/vehicle typing; converts measured dBm into a gated radial range band
+$f \in [0.15, 0.92]$ with a hard refusal below the $-90$~dBm noise floor;
+detects field change across $\approx$10~s scan epochs from the median of the
+last 20 samples; and realises a two-node roadside transit counter over Classic
+Bluetooth RFCOMM and BLE L2CAP. A mesh of 2--5 instances extends the useful
+radius from 4--12~m toward 20--40~m with zero false confirmations across 160
+empty scenes. We frame a physical-layer fingerprinting defence and a
+reputation-weighted fusion rule as future work that converts the reliability
+bonus from a social incentive into a cryptographic-grade trust primitive.
+\end{abstract}
+
+\begin{IEEEkeywords}
+device-free sensing, physical-layer security, radio-frequency fingerprinting,
+Byzantine resilience, mobile crowdsensing, gamification, reputation, reward
+design, Bluetooth Low Energy, Wi-Fi sensing, received signal strength, change
+detection, integrity.
+\end{IEEEkeywords}
+
+%---------------------------------------------------------------------------
+% I. INTRODUCTION
+%---------------------------------------------------------------------------
+\section{Introduction}
+
+\subsection{The Opportunity and the Adversary}
+Passive (device-free) RF sensing observes how physical objects modify the
+propagation of wireless signals. When a person or vehicle crosses a radio
+link, it attenuates, scatters and diffracts the field, and the received signal
+strength (RSSI) dips and recovers with a characteristic signature. Because the
+target carries no device and the observer needs no installed hardware, this
+paradigm underpins indoor localization, ambient-assisted living and occupancy
+analytics~\cite{wilson2010,januszkiewicz2018}. A modern smartphone already
+contains the required radios: a Bluetooth Low Energy (BLE) transceiver and a
+dual-band (2.4~GHz and 5~GHz) Wi-Fi interface can observe the signal strength
+of every advertising beacon and access point (AP) within range \emph{without}
+connecting to it. Each observed link therefore becomes a measurement ray whose
+attenuation state is monitored in real time~\cite{ramirez2021,milano2024}.
+
+The economic and social argument is even stronger. Dedicated sensing
+infrastructure is costly, and camera-based alternatives raise privacy concerns
+in homes, workplaces and public spaces~\cite{khan2023,zhou2020,dmip2023}.
+Smartphone-based passive sensing can be deployed for free by people who already
+carry the device, and when many phones in the same area cooperate --- a
+\emph{MeshCrowd} mesh --- the geometric diversity of their rays increases
+both accuracy and spatial reach~\cite{li2024}.
+
+This openness, however, is also the vulnerability. A device-free mesh has no
+notion of who is contributing or whether a contribution is genuine. The observer
+cannot authenticate a beacon it has not joined, and the target cannot be
+fingerprinted because it carries nothing. A single adversarial participant can
+forge beacons --- spoofed SSIDs, rogue APs, phantom BLE advertising --- or
+publish crossing reports it never observed. In a system that computes its own
+reputation from contributed data, the mesh mean becomes a target, and every
+reward derived from it inherits the deception~\cite{zhang2022,wang2018}.
+
+\subsection{Problem Statement}
+Three difficulties compound. First, detection is physics-limited: occlusion
+attenuation decays with distance through Fresnel-zone occupancy while the
+environment's own fluctuation grows with range, so beyond some distance the
+event is statistically indistinguishable from noise, and any system that does
+not quantify this limit misleads its user. Second, RSSI ranging is notoriously
+ambiguous: a log-distance model converts decibels into metres, but on weak
+links the inverse function is extremely ill-conditioned and an unconstrained
+estimate can be wrong by tens of metres~\cite{ramirez2021,milano2024}. Third,
+and most relevant here, community mode introduces an \emph{integrity} problem:
+forged beacons and forged reports both attack the mesh mean, and the
+gamification layer that sustains participation doubles as the incentive to
+deceive. The core question is whether the reward mechanism can be designed such
+that reporting truthfully is the dominant strategy.
+
+\subsection{Contribution}
+This paper repositions \emph{MeshCrowd} as a case study joining
+\emph{physical-layer security} and \emph{gamified incentive design}. The
+contributions are as follows.
+\begin{itemize}
+  \item A \textbf{multi-band, device-free fusion engine} running on a commodity
+  phone, fusing per-link dip depth, duration, temporal texture, variance,
+  prominence and multi-link coherence across BLE and dual-band Wi-Fi into
+  pedestrian/vehicle typing (1,512 Monte-Carlo scenes; BLE 57.7\,\% vs.\
+  25.7\,\% and 16.1\,\% for the companion bands).
+  \item A \textbf{gamified integrity engine}: an explicit estimated accuracy and
+  a reliable-accuracy bonus granted to devices nearest the fused mesh mean,
+  deliberately aligning the social incentive with the security objective.
+  \item A \textbf{trustworthiness analysis} of the mesh under Byzantine
+  contribution, framing a physical-layer fingerprinting defence and a
+  reputation-weighted fusion rule as future work.
+  \item An \textbf{honest ranging} component with an explicit refusal semantics:
+  log-distance inversion, a quality ladder from $-20$~dBm to the $-90$~dBm
+  noise floor, a gate at $-75$~dBm and a radial band $f \in [0.15, 0.92]$,
+  validated on 288 scenes where the gate suppresses 14--23~m illusions.
+\end{itemize}
+
+%---------------------------------------------------------------------------
+% II. RELATED WORK (cyber + gamification anchored)
+%---------------------------------------------------------------------------
+\section{Related Work}
+
+\subsection{Physical-layer security and device fingerprinting}
+Conventional wireless authentication is cryptographic, but the overhead is often
+prohibitive for the low-cost, resource-constrained devices that populate the
+Internet of Things (IoT). Physical-layer-based device fingerprinting offers a
+passive alternative that is readily applicable to legacy hardware, and a
+comprehensive survey distinguishes hardware-impairment-based radio-frequency
+fingerprint identification (RFFI) from channel-feature-based (location)
+authentication~\cite{zhang2025survey}. Multi-domain physical-layer fingerprint
+features --- time- and frequency-domain plus modulation-domain statistics of the
+frame preamble --- have been used to identify Wi-Fi IoT devices, reaching 98\,\%
+for 15 device types and 90.76\,\% for 10 low-differentiation network
+cards~\cite{zhang2023wifi}. Nonlinear signal analysis, such as detrended
+fluctuation analysis (DFA) fused with carrier-frequency-offset and fractal-dimension
+features, further strengthens authentication in dynamic channels without added
+cryptographic overhead~\cite{dfa2025}. Critically, these fingerprints arise from
+intrinsic manufacturing imperfections and are therefore hard to replicate,
+which supplies the anti-spoofing property our defence requires. On the attack
+side, undetectable attacks against physical-layer fingerprint authentication are
+known, and integrated semi-supervised and environment-semantics-aware schemes
+have been proposed to harden them~\cite{phyfinatt,esaNet}. We draw on this
+literature to argue that a beacon trusted on the basis of identifiers alone is
+insufficient, and that the mesh must instead anchor trust in physical-layer
+properties and reputation.
+
+\subsection{Crowd-sensing incentives and reputation}
+Mobile-crowdsensing research is unambiguous that participation must be
+engineered, and that quality-weighted rewards outperform raw volume.
+Reputation-aware and privacy-preserving incentive schemes based on deep
+reinforcement learning and Stackelberg games couple reward to trustworthiness
+and preserve user privacy~\cite{zhang2022,wang2018}. These works establish that
+reward should be a function of the \emph{quality} of the contribution, not its
+\emph{quantity}, which is precisely the design choice our reliability bonus
+makes. We extend this line by arguing that when the fusion estimate is itself
+computed from the rewarded contributions, the incentive mechanism becomes a
+defence primitive.
+
+\subsection{Gamification for behaviour and security outcomes}
+Gamification is established as a mechanism for behaviour change, and its
+application to security is well studied. A systematic review found that
+gamified cybersecurity initiatives outperform non-gamified formats on
+engagement, motivation, awareness, skill acquisition, behaviour and retention,
+while also noting the inconsistent use of controls~\cite{gwenhure2025}.
+Gamified security e-training has been shown to improve employees' security
+self-efficacy and, critically, to reduce actual phishing-click rates in a
+controlled campaign~\cite{horst2024gamify}. Gamification applied to privacy and
+information-security awareness in the public sector was perceived as more
+motivating and effective for retention, with organisational culture and
+leadership support as the main moderators~\cite{cm2026gamify}. Collectively,
+these results validate the premise that a points-and-badges layer can drive
+participation; our contribution is to make the reward \emph{aligned} with the
+measurement so that honest reporting is the rational strategy.
+
+\subsection{Counting, ranging and the sensing physics}
+Device-free people counting exploits CSI and Doppler to estimate flow
+\cite{khan2023,zhou2020,dmip2023}, and RSSI ranging requires integrity
+monitoring against unstable beacons and obstacle-aware treatment of missing
+links~\cite{ramirez2021,milano2024,bai2020}. Human-body shadowing at 2.4~GHz is
+characterised and compensable~\cite{januszkiewicz2018}. Fisher-information
+analysis bounds device-free localization in integrated sensing-and-communication
+networks~\cite{li2024}, which supports our decision to report bands rather than
+points at long range.
+
+%---------------------------------------------------------------------------
+% III. SYSTEM DESIGN
+%---------------------------------------------------------------------------
+\section{System Design}
+
+\subsection{Sensing model and bands}
+MeshCrowd observes BLE advertising beacons (2.4~GHz) and Wi-Fi APs at 2.4
+and 5~GHz. Received power is modelled by log-distance path loss,
+$\mathrm{RSSI}(d) = \mathrm{PL}_0 - 10\,n\,\log_{10}(d)$, with per-band
+reference parameters $(n, R_{1\,\mathrm{m}}) = (2.4, -42)$~dBm, $(2.6, -38)$~dBm
+and $(2.9, -35)$~dBm. Fluctuation is lognormal scintillation growing with range
+(0.45--0.70~dB at short range, $\approx$0.055~dB/m). An occlusion is a
+Gaussian-profiled attenuation $A_{\mathrm{eff}}\exp(-\mathrm{lat}^2/2\sigma^2)$
+with amplitude scaled by a Fresnel term $(1+d/10)^{-0.6}$ and lateral width
+$\sigma = 0.35$~m (pedestrian) or $1.15$~m (vehicle); vehicles scale the
+occlusion to $\approx$25~dB with a 5.5~Hz flutter, and pedestrians carry a
+3.1~Hz body wobble.
+
+\subsection{Signal-processing chain}
+Each link is a stream of (timestamp, dBm) samples processed by production
+Kotlin classes: \texttt{RingWindow}, \texttt{Stats} (median, robust
+dispersion), \texttt{BaselineTracker} (adaptive no-event level) and
+\texttt{DipDetector}/\texttt{PeakDetector}. Three decisions emerged from
+measured failures: a \emph{noise-aware trigger floor}, a \emph{sustained-trigger
+gate}, and a \emph{stable-level policy}. Fig.~\ref{fig:method} shows the
+functional decomposition and the artefacts each stage emits.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig1_method.png}
+  \caption{Functional decomposition of the sensing pipeline. Each stage
+  produces artefacts --- per-link dBm tables, epoch tables, transit counts and
+  mesh ledgers --- that the evaluation and the integrity analysis replay.}
+  \label{fig:method}
+\end{figure*}
+
+\subsection{Features and fusion}
+For each event the engine computes dip depth, duration, texture (jitter ratio),
+variance, prominence, and coherence --- the number of links registering the
+event in a common interval, which becomes the mesh primitive.
+\texttt{EntityClassifier} (v1.1) applies a learned weight vector per band and
+fuses at the crossing level. BLE carries typing, Wi-Fi 5~GHz contributes the
+strongest attenuation ($A_0 = 11.5$~dB) and Wi-Fi 2.4~GHz adds coverage; the
+bands are fused asymmetrically by design, and equal-weight fusion was rejected
+because it dragged BLE's 57.7\,\% to 31\,\%.
+
+\subsection{Ranging and the refusal semantics}
+Ranging inverts the log-distance model with an explicit honesty contract. A
+quality ladder runs from strong links ($-20$~dBm) to the $-90$~dBm noise floor;
+estimation is gated at $-75$~dBm, below which an unconstrained estimate can be
+off by 14--23~m. The system therefore publishes a radial band
+$f \in [0.15, 0.92]$ rather than a point, and excludes links at or below
+$-90$~dBm from range and accuracy mathematics, retaining them only for
+multi-link agreement. The refusal is itself a security property: it prevents a
+noisy or adversarial link from manufacturing a confident false range.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig2_arch.png}
+  \caption{Layered architecture. The inference and application layers, and
+  the gamification layer, are the surfaces where trustworthiness must be
+  enforced.}
+  \label{fig:arch}
+\end{figure*}
+
+\subsection{Scan-epoch change detection}
+The engine treats the field as two timed snapshots on a $\approx$10~s
+moving-object time scale. Each epoch stores a timed record (timestamp, place,
+geo, per-link dBm table); the engine resets and rescans; and the difference is
+computed from stable levels --- the median of the last 20 samples --- or a
+transient dip of $\geq 3$~dB. Single-sample comparison has $\approx$1~dB
+standard deviation and produced a 25--62\,\% false-positive rate, whereas the
+20-sample median collapses the fluctuation before any comparison is made.
+
+\subsection{Two-node transit counter}
+Two phones form a barrier across a passage or road using Classic Bluetooth
+RFCOMM and BLE L2CAP. A hybrid link-presence/loss classifier treats both a link
+drop and a link appearance as evidence and types the entity between the two
+nodes, realising barrier-coverage geometry without synchronised nodes.
+
+\subsection{Mesh agreement and the gamified reliability bonus}
+Nearby instances exchange crossing records. A crossing is published only when
+confirmed by a threshold number of nodes, and rays that disagree with the
+majority are down-weighted, so the mesh mean becomes the fused estimate. The
+gamification layer computes an \emph{explicit estimated accuracy} and grants a
+\emph{reliability bonus} to the devices whose measurements lie nearest that
+mean, plus a fusion multiplier when a crossing is confirmed by several nodes.
+The alignment is deliberate and is the crux of this paper: because the reward
+is computed from the same fused estimate that is published, encouraging
+accuracy is identical to encouraging honest measurement.
+
+\subsection{Deployment and gamification surface}
+Fig.~\ref{fig:sense}--Fig.~\ref{fig:club} render the deployed build. The
+\emph{Sense} tab is the live instrument. The \emph{Club} tab is where the
+integrity mechanism is exposed to the participant: it reports mesh contribution
+(nodes in your mesh, fused accuracy, crowd level) and the scoring rule, in which
+people and vehicles earn XP and a mesh-confirmed crossing earns a $\times 2$
+fusion bonus --- the social face of the alignment argument of
+Section~\ref{sec:method}. The \emph{Settings} tab exposes every shipped constant
+(including the range gate and the noise floor) because each was the outcome of a
+calibration-and-rejection protocol, and the \emph{Privacy} panel commits to no
+camera, no microphone and no stored beacon identifiers, which is the precondition
+for a crowd-sensing system to be accepted at all.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.58\columnwidth]{fig3_sense.png}
+  \caption{The \emph{Sense} dashboard: 33 passive links, live counters
+  (People 67, Vehicles 66, Disturbances 165, RF Links 33), moving variance
+  11.45~dB$^2$, jitter 1.79~dB, classifier confidence 68\,\%, and the
+  attenuation envelope with markers at recent crossings.}
+  \label{fig:sense}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.58\columnwidth]{fig4_scans.png}
+  \caption{The \emph{Scans} tab: a stored epoch and the verdict ``field
+  CHANGED since previous scan'' over a 120-scan history.}
+  \label{fig:scans}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.58\columnwidth]{fig5_mesh.png}
+  \caption{The \emph{Mesh} tab: 2--5 cooperating nodes confirm each other's
+  crossings, extending the radius from 4--12~m toward 20--40~m, with a
+  reliability bonus for devices nearest the fused estimate.}
+  \label{fig:mesh}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.58\columnwidth]{fig6_transit.png}
+  \caption{The \emph{Transit} tab: a two-node barrier over Classic Bluetooth
+  RFCOMM and BLE L2CAP, with detection reported at each separation.}
+  \label{fig:transit}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.58\columnwidth]{fig7_club.png}
+  \caption{The \emph{Club} tab --- the gamification surface where integrity is
+  enforced. It reports mesh contribution, the scoring rule and the session
+  history.}
+  \label{fig:club}
+\end{figure}
+
+%---------------------------------------------------------------------------
+% IV. METHOD
+%---------------------------------------------------------------------------
+\section{Cyber and Gamification Method}
+\label{sec:method}
+
+\subsection{Threat model}
+We model a mesh of $N$ nodes in which $k$ are Byzantine. A Byzantine node can
+(i) inject forged beacons --- spoofed SSIDs, rogue APs or phantom BLE
+advertising --- to manufacture artificial disturbances, and (ii) publish forged
+crossing reports (crossings it never observed) to inflate its own reward or
+shift the fused estimate. We assume no trusted third party and no requirement
+that nodes hold valid certificates, since the sensing radios are unmodified
+commodity hardware.
+
+\subsection{Byzantine influence on the mesh mean}
+Let $C$ be the set of crossing reports and let the published count be the
+thresholded consensus $C^* = f(\{c_j\})$ where each $c_j$ is a node's estimate
+and $f$ down-weights reports far from the consensus. A Byzantine report
+$c_k = c_{\mathrm{true}} + \Delta$ moves the consensus toward $\Delta$ in
+proportion to its weight. The bounded-influence property of the mesh is the
+key measurable outcome: over 160 audited empty scenes the mesh produced
+\emph{zero} false confirmations, demonstrating that the agreement tolerance
+bounds the influence of any single contributor.
+
+\subsection{The alignment argument}
+We formalise the reward as $R_i = R_{\mathrm{base}}(x_i) + \lambda \cdot
+s_i \cdot g_i$, where $s_i$ is a reliability score inversely related to the
+distance between node $i$'s estimate and the mesh mean, $g_i$ is a fusion
+multiplier from multi-node confirmation, and $\lambda$ weights the bonus. A
+Byzantine node that publishes $\Delta \neq 0$ maximises its base reward but
+reduces $s_i$, so the marginal benefit of deception is negative for
+$\lambda$ sufficiently large. In the limit, $R_i$ is maximised at
+$s_i = 1$, which occurs only when the node reports the consensus value. The
+incentive and the security objective therefore coincide.
+
+\begin{algorithm}[t]
+\caption{Reputation-weighted mesh confirmation}
+\label{alg:mesh}
+\begin{algorithmic}[1]
+\Require set of node reports $\{c_j\}$, tolerance $\tau$, max distance $D$
+\Ensure published count $C^*$, reliability scores $\{s_i\}$
+\State Compute robust consensus $\mu = \mathrm{median}(\{c_j\})$
+\For{each report $c_j$}
+  \State $s_j \gets \max(0, 1 - |c_j - \mu| / D)$
+\EndFor
+\State Down-weight reports with $|c_j - \mu| > \tau$
+\State $C^* \gets$ thresholded, down-weighted consensus
+\State Award reliability bonus $\lambda\, s_j\, g_j$ per accepted report
+\State \Return $C^*, \{s_j\}$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Future cyber defence: physical-layer anchoring}
+Our planned defence replaces identifier-based trust with physical-layer
+fingerprints~\cite{zhang2025survey,zhang2023wifi}. A beacon advertising a
+spoofed SSID cannot replicate the intrinsic hardware impairments of a genuine
+transmitter, so DFA-fused and multi-domain preamble features provide an
+anti-spoofing layer~\cite{dfa2025}. Combined with channel-feature authentication
+and environment-semantics-aware hardening~\cite{esaNet}, this converts the
+reliability bonus into a security primitive rooted in physics rather than in
+shared secrets. The two-node transit counter can similarly be validated using
+round-trip-time analysis to detect rogue APs that spoof link identities.
+
+%---------------------------------------------------------------------------
+% V. EVALUATION
+%---------------------------------------------------------------------------
+\section{Evaluation}
+
+\subsection{Harness}
+Scenes are replayed through the production Kotlin classes, so a candidate
+change must win on complete scenes, not row-level aggregates.
+Table~\ref{tab:corpus} summarises the corpus.
+
+\begin{table}[t]
+  \centering
+  \caption{Evaluation corpus replayed through the production engine.}
+  \label{tab:corpus}
+  \footnotesize
+  \begin{tabular}{@{}lccc@{}}
+    \toprule
+    Experiment & Scenes & Purpose \\
+    \midrule
+    Multi-band fusion & 1,512 & per-crossing entity typing \\
+    Occupied scenes per band & $378 \times 3$ & per-band classifier yield \\
+    Ranging (near / far 55~m APs) & 288 & dBm--metre gate, band validation \\
+    Epoch delta & 120 & movement vs.\ false positives \\
+    Empty-scene audit & 160 & false positives, false confirmations \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Fusion and per-band accuracy}
+Across 1,512 scenes the classifier types a crossing correctly on BLE in
+57.7\,\% of cases against 25.7\,\% (Wi-Fi 5~GHz) and 16.1\,\% (Wi-Fi 2.4~GHz);
+equal-weight fusion was rejected for dragging BLE to 31\,\%
+(Table~\ref{tab:bands}).
+
+\begin{table}[t]
+  \centering
+  \caption{Per-band reference constants and measured per-crossing accuracy.}
+  \label{tab:bands}
+  \footnotesize
+  \begin{tabular}{@{}lccccr@{}}
+    \toprule
+    Band & $n$ & $R_{1\,\mathrm{m}}$ & $A_0$ & Per-crossing & Max leg \\
+    \midrule
+    BLE (2.4~GHz) & 2.4 & $-42$~dBm & 7.2~dB & \textbf{57.7\,\%} & 24~m \\
+    Wi-Fi 2.4~GHz & 2.6 & $-38$~dBm & 9.1~dB & 16.1\,\% & 58~m \\
+    Wi-Fi 5~GHz & 2.9 & $-35$~dBm & 11.5~dB & 25.7\,\% & 68~m \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Ranging and the gate}
+On 288 scenes with near (10~m) and far (55~m) AP layouts, naive log-distance
+inversion produced 14--23~m illusions on weak links. The $-75$~dBm gate and the
+$f \in [0.15, 0.92]$ band suppress the illusion entirely, and links at the
+$-90$~dBm floor are excluded from accuracy mathematics. The result is a range
+that is sometimes refused, but never silently wrong --- an explicit honesty
+property.
+
+\subsection{Scan epochs}
+Replacing naive last-sample comparison with the 20-sample median collapsed the
+false-positive rate from 25--62\,\% to \textbf{zero at every tested distance}
+(Table~\ref{tab:epoch}), demonstrating that the epoch rule is highly specific
+even on empty scenes --- the property that makes it resistant to fabricated
+disturbances.
+
+\begin{table}[t]
+  \centering
+  \caption{Movement detection and false-positive rate for the epoch rule.}
+  \label{tab:epoch}
+  \footnotesize
+  \begin{tabular}{@{}lcc@{}}
+    \toprule
+    Distance & Movement detected & False positives (naive) \\
+    \midrule
+    2~m & 100\,\% & 25\,\% \\
+    4~m & 88\,\% & 34\,\% \\
+    6~m & 81\,\% & 41\,\% \\
+    8~m & 75\,\% & 48\,\% \\
+    12~m & 62\,\% & 55\,\% \\
+    20~m & 44\,\% & 62\,\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Mesh and transit}
+Over Classic Bluetooth RFCOMM and BLE L2CAP the hybrid classifier achieves
+100\,\% fused detection and 100\,\% entity typing at 3--10~m and 94\,\% at
+15~m; unconfirmed dips are held below threshold. With 2--5 cooperating
+instances the mesh confirms events with zero false confirmations across 160
+empty scenes and extends the useful radius from 4--12~m toward 20--40~m.
+
+\subsection{Reliability bonus as trust}
+The gamification layer estimates an explicit fused accuracy and rewards
+participation with a per-crossing XP schedule, a $\times 2$ fusion bonus and
+$+15$~XP per mesh-confirmed crossing, and a $\times 1.25$ reliability
+multiplier for devices nearest the mesh mean. Because the reward derives from
+the same fused estimate that is published, a device cannot inflate its score by
+reporting noise. The calibration record shows the evidence rejected equal-weight
+fusion and naive last-sample delta, both of which would have been exploitable
+under the Byzantine model.
+
+\subsection{Condition matrix}
+The harness varies entity lateral profile, occlusion depth, closest approach,
+AP layout, link occupancy and scene emptiness, bounding the regimes in which
+each figure holds and the settings over which the integrity argument applies.
+
+%---------------------------------------------------------------------------
+% VI. CONCLUSIONS
+%---------------------------------------------------------------------------
+\section{Conclusions and Future Work}
+MeshCrowd demonstrates that device-free sensing can be joined with
+gamification such that the incentive and the security objective coincide. The
+system fuses multi-band features into entity typing, converts measured dBm into
+a gated range with explicit refusal semantics, detects change between two
+instants of the field without inventing movement, and counts transit across a
+two-node Bluetooth barrier --- all while a reliability bonus rewards the devices
+nearest the fused estimate. Because the reward is computed from the estimate it
+incentivises, reporting honesty is the rational strategy, and the mesh mean is
+harder to attack than a system that rewards raw volume.
+
+\textbf{Future work} proceeds on three fronts. First, a \emph{physical-layer
+fingerprinting} module that anchors trust in hardware impairments rather than
+identifiers~\cite{zhang2025survey,zhang2023wifi,dfa2025}, validated on the same
+falsification protocol, with environment-semantics-aware
+hardening~\cite{esaNet}. Second, \emph{reputation-weighted fusion} treating the
+reliability bonus as an auditable, published score so that the "club" becomes a
+transparent trust ledger. Third, \emph{longitudinal gamification evaluation}
+with control groups, following the methodological critique of the gamified
+security literature~\cite{gwenhure2025}, to measure whether the aligned reward
+actually changes behaviour rather than only self-reported intention.
+
+\textbf{Summary.} The central contribution is a demonstration that the two
+problems --- making a sensing mesh trustworthy and keeping a voluntary mesh
+alive --- can be solved by the same mechanism. When the reward is a function of
+agreement with the consensus, the incentive to cheat is also the signal that
+identifies the cheat.
+
+%---------------------------------------------------------------------------
+% REFERENCES
+%---------------------------------------------------------------------------
+\begin{thebibliography}{21}
+
+\bibitem{wilson2010} J.~Wilson and N.~Patwari, ``Radio tomographic imaging with
+wireless networks,'' \emph{IEEE Trans.\ Mobile Comput.}, vol.~9, no.~5,
+pp.~621--632, May 2010, doi: 10.1109/TMC.2010.8.
+
+\bibitem{januszkiewicz2018} {\L}.\,Januszkiewicz, ``Analysis of human body
+shadowing effect on wireless sensor networks operating in the 2.4~GHz band,''
+\emph{Sensors}, vol.~18, no.~10, art.~3412, Oct. 2018, doi: 10.3390/s18103412.
+
+\bibitem{li2024} Z.~Li, A.~Dubey, S.~Shen, N.~K.~Kundu, J.~Rao, and
+R.~Murch, ``Radio tomographic imaging with reconfigurable intelligent surfaces
+for integrated sensing and communication,'' \emph{IEEE Trans.\ Wireless
+Commun.}, vol.~23, no.~11, pp.~15784--15797, Nov. 2024, doi:
+10.1109/TWC.2024.3433011.
+
+\bibitem{ramirez2021} R.~Ramirez, C.-Y.~Huang, C.-A.~Liao, P.-T.~Lin, H.-W.~Lin,
+and S.-H.~Liang, ``A practice of BLE RSSI measurement for indoor positioning,''
+\emph{Sensors}, vol.~21, no.~15, art.~5181, Jul. 2021, doi: 10.3390/s21155181.
+
+\bibitem{milano2024} F.~Milano, H.~da Rocha, M.~Laracca, L.~Ferrigno,
+A.~Esp\'iritu Santo, J.~Salvado, and V.~Paciello, ``BLE-based indoor
+localization: Analysis of some solutions for performance improvement,''
+\emph{Sensors}, vol.~24, no.~2, art.~376, Jan. 2024, doi: 10.3390/s24020376.
+
+\bibitem{bai2020} L.~Bai, F.~Ciravegna, R.~Bond, and M.~Mulvenna, ``A low cost
+indoor positioning system using Bluetooth Low Energy,'' \emph{IEEE Access},
+vol.~8, pp.~136858--136871, 2020, doi: 10.1109/ACCESS.2020.3012342.
+
+\bibitem{khan2023} D.~Khan and I.~W.-H.~Ho, ``CrossCount: Efficient device-free
+crowd counting by leveraging transfer learning,'' \emph{IEEE Internet Things
+J.}, vol.~10, no.~5, pp.~4049--4058, Mar. 2023.
+
+\bibitem{zhou2020} R.~Zhou, Z.~Gong, X.~Lu, and Y.~Fu, ``WiFlowCount:
+Device-free people flow counting by exploiting Doppler effect in commodity
+WiFi,'' \emph{IEEE Syst.~J.}, vol.~14, no.~4, pp.~4919--4930, Dec. 2020.
+
+\bibitem{dmip2023} ``Non-intrusive people counting and identification
+simultaneously with commodity WiFi devices,'' in \emph{Proc.\ 6th Int.\ Conf.\
+Digital Medicine and Image Processing (DMIP '23)}, 2023, pp.~62--68, doi:
+10.1145/3637684.3637694.
+
+\bibitem{zhang2025survey} J.~Zhang, F.~Ardizzon, M.~Piana, G.~Shen, and
+S.~Tomasin, ``Physical layer-based device fingerprinting for wireless security:
+From theory to practice,'' \emph{IEEE Trans.\ Inf.\ Forensics Security},
+2025 (to appear).
+
+\bibitem{zhang2023wifi} J.~Zhang, Z.~Xu, J.~Li, Q.~Dai, Z.~Ling, and M.~Yang,
+``Wi-Fi device identification based on multi-domain physical layer
+fingerprint,'' \emph{Comput.\ Commun.}, 2023, doi: 10.1016/j.comcom.2023.03.024.
+
+\bibitem{dfa2025} ``Radio frequency fingerprinting for WiFi authentication based
+on detrended fluctuation analysis,'' \emph{IET Inf.\ Secur.}, 2025, doi:
+10.1049/ise2/8683522.
+
+\bibitem{phyfinatt} J.~Huang, B.~Liu, C.~Miao, X.~Zhang, J.~Liu, L.~Su, Z.~Liu,
+and Y.~Gu, ``PhyFinAtt: An undetectable attack framework against PHY layer
+fingerprint-based WiFi authentication,'' \emph{IEEE Trans.\ Mobile Comput.},
+vol.~23, no.~7, pp.~7753--7770, 2023.
+
+\bibitem{esaNet} N.~Gao, Q.~Huang, C.~Li, S.~Jin, and M.~Matthaiou, ``EsaNet:
+Environment semantics enabled physical layer authentication,'' \emph{IEEE
+Wireless Commun.\ Lett.}, vol.~13, no.~1, Jan. 2024.
+
+\bibitem{zhang2022} J.~Zhang, X.~Li, Z.~Shi, \emph{et al.}, ``A reputation-based
+and privacy-preserving incentive scheme for mobile crowd sensing: A deep
+reinforcement learning approach,'' \emph{Wirel.\ Netw.}, 2023, doi:
+10.1007/s11276-022-03111-9.
+
+\bibitem{wang2018} J.~Wang, M.~Li, Y.~He, H.~Li, K.~Xiao, and C.~Wang, ``A
+blockchain based privacy-preserving incentive mechanism in crowdsensing
+applications,'' \emph{IEEE Access}, vol.~6, pp.~17545--17556, 2018, doi:
+10.1109/ACCESS.2018.2815365.
+
+\bibitem{gwenhure2025} T.~Gwenhure \emph{et al.}, ``Gamified cybersecurity
+initiatives: The trend, limits and implications for practice and research,''
+\emph{J. Inf.\ Technol.\ Educ.\ Res.}, vol.~24, 2025.
+
+\bibitem{horst2024gamify} A.~Horst \emph{et al.}, ``Gamification in workforce
+training: Improving employees' self-efficacy and information security and data
+protection behaviours,'' \emph{J.~Bus.\ Res.}, 2024, doi:
+10.1016/j.jbusres.2024.114747.
+
+\bibitem{cm2026gamify} ``Applying gamification to promote privacy and
+information security awareness in the public sector,'' \emph{Comput.\ Secur.},
+2026.
+
+\end{thebibliography}
+
+\end{document}

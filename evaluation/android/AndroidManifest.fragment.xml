@@ -1,0 +1,5 @@
+<!-- Merge this inside the real app module's <application> element. -->
+<activity
+    android:name="org.meshcrowd.evaluation.EvaluationDataActivity"
+    android:exported="false"
+    android:label="Evaluation data" />
